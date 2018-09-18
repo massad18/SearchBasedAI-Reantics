@@ -1,6 +1,6 @@
 import random
-import numpy
 import sys
+import math
 sys.path.append("..")  #so other modules can be found in parent dir
 from Player import *
 from Constants import *
@@ -30,11 +30,21 @@ class AIPlayer(Player):
     ##
     def __init__(self, inputPlayerId):
         super(AIPlayer,self).__init__(inputPlayerId, "Search Based 0.1")
-        # Initialize class variables on start of program
-        self.workerWeight = 1
-        self.soldierWeight = 1
+        ## Initialize class variables on start of program ##
+        # Init weights for weighted average of evaluation function
+        self.workerWeight = 2
+        self.soldierWeight = 2
         self.allAntWeight = 1
-        self.foodStoredWeight = 1
+        self.foodStoredDifferenceWeight = 1
+
+        # Init constants for y = Ce^(kx) equation s.t. x = [0,1] and y = [0,10]
+            # y = [0,10] given that at 11, one team has 11 and the other has 0
+            # used http://cs.jsu.edu/~leathrum/gwtmathlets/mathlets.php?name=expgraph
+        self.foodStoredDifference_C_value = 0.05
+        self.foodStoredDifference_k_value = 0.299573
+
+        # Init depth limit for recursion
+        self.depthLimit = 1
 
 ################################################################################
     ##
@@ -83,8 +93,8 @@ class AIPlayer(Player):
     #   A score between [-1.0, 1.0] such that + is good and - is bad for the
     #   player in question (me parameter)
     ##
-    def evalNumberFoodStored(self, currentState, me):
-        myInv = getCurrPlayerInventory(currentState)
+    def evalNumberFoodStoredDifference(self, currentState, me):
+        myInv = currentState.inventories[me]
         enemyInv = currentState.inventories[1-me]
         # Gather the number of food the AI has stored
         myFoodCount = myInv.foodCount
@@ -96,9 +106,18 @@ class AIPlayer(Player):
 
         if sum == 0:
             return 0.0
-        else:
-            evalScore = (myFoodCount-enemyFoodCount)/sum
+        # If the AIs food is greater than the enemys...
+            # Have the difference be positive and the final score be positive
+        elif myFoodCount > enemyFoodCount:
+            difference = myFoodCount - enemyFoodCount
+            evalScore = self.foodStoredDifference_C_value*math.exp(self.foodStoredDifference_k_value*difference)
             return evalScore
+        # If the AIs food is less than the enemys...
+            # Have the difference be positive and the final score be negative
+        else:
+            difference = enemyFoodCount - myFoodCount
+            evalScore = self.foodStoredDifference_C_value*math.exp(self.foodStoredDifference_k_value*difference)
+            return -evalScore
 
     ##
     # evalOverall
@@ -117,6 +136,13 @@ class AIPlayer(Player):
 
     def evalOverall(self, currentState, me):
 
+        # If I am the winner, return 1.0
+        if getWinner(currentState) == me:
+            return 1.0
+        # If the enemy is the winner, return -1.0
+        elif getWinner(currentState) == 1-me:
+            return -1.0
+
         ### EVALUATE THE RATIO OF ANTS ###
         # Evaluate the ratio of the AIs worker ants to the enemys worker ants
         workerScore = self.evalNumberAntType(currentState, me, [WORKER, ]) * self.workerWeight
@@ -128,14 +154,16 @@ class AIPlayer(Player):
         allAntScore = self.evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ]) * self.allAntWeight
         print("Ratio of Total Ants (excluding Queen): " + str(allAntScore))
 
-        ### EVALUATE THE RATIO OF FOOD STORED ###
+        ### EVALUATE THE RATIO OF THE DIFFERENCE IN FOOD STORED ###
         # Evaluate the ratio of the AIs food count to the enemys food count
-        foodStoredScore = self.evalNumberFoodStored(currentState, me) * self.foodStoredWeight
-        print("Ratio of Food Stored: " + str(foodStoredScore))
+        foodStoredDifferenceScore = self.evalNumberFoodStoredDifference(currentState, me) * self.foodStoredDifferenceWeight
+        print("Ratio of Food Stored: " + str(foodStoredDifferenceScore))
 
         ### OVERALL WEIGHTED AVERAGE ###
+        # Sum up all of the weights for the weighted average
+        totalWeight = self.workerWeight + self.soldierWeight + self.allAntWeight + self.foodStoredDifferenceWeight
         # Takes the weighted average of all of the scores
-        overallScore = numpy.mean([workerScore,soldierScore,allAntScore,foodStoredScore])
+        overallScore = (workerScore + soldierScore + allAntScore + foodStoredDifferenceScore)/totalWeight
         print("Overall Score: " + str(overallScore))
 
         print()
