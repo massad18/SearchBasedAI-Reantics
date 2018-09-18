@@ -1,4 +1,5 @@
 import random
+import numpy
 import sys
 sys.path.append("..")  #so other modules can be found in parent dir
 from Player import *
@@ -8,60 +9,6 @@ from Ant import UNIT_STATS
 from Move import Move
 from GameState import *
 from AIPlayerUtils import *
-
-##
-# evalNumberAntType
-# Description:
-#
-# Parameters:
-#   currentState - A clone of the current game state that will be evaluated
-#   me - A reference to the index of the player in question
-#   antType - A list of the types of ants that will be evaluated (all in upper case)
-#
-# Return:
-#   A score between [-1.0, 1.0] such that + is good and - is bad for the
-#   player in question (me parameter)
-##
-def evalNumberAntType(currentState, me, antType):
-    # Gather a list of my ants of the given type
-    myAntCount = len(getAntList(currentState, me, antType))
-    # Gather a list of the enemys ants of the given type
-    enemyAntCount = len(getAntList(currentState, 1-me, antType))
-    # Calculate the total number of ants of the given type
-    sum = myAntCount+enemyAntCount
-
-    if myAntCount+enemyAntCount == 0:
-        return 0.0
-    else:
-        evalScore = (myAntCount-enemyAntCount)/sum
-        return evalScore
-
-##
-# evalNumberFood
-# Description:
-#
-# Parameters:
-#   currentState - A clone of the current game state that will be evaluated
-# Return:
-#   A score between [-1.0, 1.0] such that + is good and - is bad for the
-#   player in question (me parameter)
-##
-def evalNumberFood(currentState, me):
-    myInv = getCurrPlayerInventory(currentState)
-    enemyInv = currentState.inventories[1-me]
-    # Gather the number of food the AI has stored
-    myFoodCount = myInv.foodCount
-    # Gather the number of food the enemy has stored
-    enemyFoodCount = enemyInv.foodCount
-
-    # Calculate the total food gathered
-    sum = myFoodCount+enemyFoodCount
-
-    if sum == 0:
-        return 0.0
-    else:
-        evalScore = (myFoodCount-enemyFoodCount)/sum
-        return evalScore
 
 ##
 #AIPlayer
@@ -84,6 +31,118 @@ class AIPlayer(Player):
     def __init__(self, inputPlayerId):
         super(AIPlayer,self).__init__(inputPlayerId, "Search Based 0.1")
         # Initialize class variables on start of program
+        self.workerWeight = 1
+        self.soldierWeight = 1
+        self.allAntWeight = 1
+        self.foodStoredWeight = 1
+
+################################################################################
+    ##
+    # evalNumberAntType
+    # Description: Evaluates the current gamestate for the given person
+    #   and ant types. Will return a number between [-1.0, 1.0] where negative
+    #   numbers are undesirable state for the given person and positive numbers
+    #   are more desirable states. The more ants of the specific type that you have
+    #   compared to the opponent yields higher output scores.
+    #
+    # Parameters:
+    #   currentState - A clone of the current game state that will be evaluated
+    #   me - A reference to the index of the player in question
+    #   antType - A list of the types of ants that will be evaluated (all in upper case)
+    #
+    # Return:
+    #   A score between [-1.0, 1.0] such that + is good and - is bad for the
+    #   player in question (me parameter)
+    ##
+    def evalNumberAntType(self, currentState, me, antType):
+        # Gather a list of my ants of the given type
+        myAntCount = len(getAntList(currentState, me, antType))
+        # Gather a list of the enemys ants of the given type
+        enemyAntCount = len(getAntList(currentState, 1-me, antType))
+        # Calculate the total number of ants of the given type
+        sum = myAntCount+enemyAntCount
+
+        if myAntCount+enemyAntCount == 0:
+            return 0.0
+        else:
+            evalScore = (myAntCount-enemyAntCount)/sum
+            return evalScore
+
+    ##
+    # evalNumberFoodStored
+    # Description: Evaluates the current gamestate for the given person
+    #   and the amount of food that they have stored. Will return a number between
+    #   [-1.0, 1.0] where negative numbers are undesirable state for the given
+    #   person and positive numbers are more desirable states. The more food that
+    #   the player has stored, compared to their enemy, the higher the score returned.
+    #
+    # Parameters:
+    #   currentState - A clone of the current game state that will be evaluated
+    #
+    # Return:
+    #   A score between [-1.0, 1.0] such that + is good and - is bad for the
+    #   player in question (me parameter)
+    ##
+    def evalNumberFoodStored(self, currentState, me):
+        myInv = getCurrPlayerInventory(currentState)
+        enemyInv = currentState.inventories[1-me]
+        # Gather the number of food the AI has stored
+        myFoodCount = myInv.foodCount
+        # Gather the number of food the enemy has stored
+        enemyFoodCount = enemyInv.foodCount
+
+        # Calculate the total food gathered
+        sum = myFoodCount+enemyFoodCount
+
+        if sum == 0:
+            return 0.0
+        else:
+            evalScore = (myFoodCount-enemyFoodCount)/sum
+            return evalScore
+
+    ##
+    # evalOverall
+    # Description: Calls all of the evaluation scores and multiplies them by a
+    #   weight. This allows the AI to fine tune the evaluation scores to better
+    #   suit favorable moves and strategies.
+    #
+    # Parameters:
+    #   currentState - A clone of the current game state that will be evaluated
+    #   me - A reference to the index of the player in question
+    #
+    # Return:
+    # A score between [-1.0, 1.0] such that + is good and - is bad for the
+    #   player in question (me parameter)
+    ##
+
+    def evalOverall(self, currentState, me):
+
+        ### EVALUATE THE RATIO OF ANTS ###
+        # Evaluate the ratio of the AIs worker ants to the enemys worker ants
+        workerScore = self.evalNumberAntType(currentState, me, [WORKER, ]) * self.workerWeight
+        print("Ratio of Worker Ants: " + str(workerScore))
+        # Evaluate the ratio of the AIs sodlier ants to the enemys soldier ants
+        soldierScore = self.evalNumberAntType(currentState, me, [SOLDIER, ]) * self.soldierWeight
+        print("Ratio of Solider Ants: " + str(soldierScore))
+        # Evaluate the ratio of the AIs ants to the enemys ants (excluding the queen)
+        allAntScore = self.evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ]) * self.allAntWeight
+        print("Ratio of Total Ants (excluding Queen): " + str(allAntScore))
+
+        ### EVALUATE THE RATIO OF FOOD STORED ###
+        # Evaluate the ratio of the AIs food count to the enemys food count
+        foodStoredScore = self.evalNumberFoodStored(currentState, me) * self.foodStoredWeight
+        print("Ratio of Food Stored: " + str(foodStoredScore))
+
+        ### OVERALL WEIGHTED AVERAGE ###
+        # Takes the weighted average of all of the scores
+        overallScore = numpy.mean([workerScore,soldierScore,allAntScore,foodStoredScore])
+        print("Overall Score: " + str(overallScore))
+
+        print()
+
+        return overallScore
+
+################################################################################
 
     ##
     #getPlacement
@@ -163,15 +222,9 @@ class AIPlayer(Player):
         while (selectedMove.moveType == BUILD and numAnts >= 3):
             selectedMove = moves[random.randint(0,len(moves) - 1)];
 
-        # Evaluate the ratio of the AIs worker ants to the enemys worker ants
-        print("Ratio of Worker Ants: " + str(evalNumberAntType(currentState, me, [WORKER, ])))
-        # Evaluate the ratio of the AIs sodlier ants to the enemys soldier ants
-        print("Ratio of Solider Ants: " + str(evalNumberAntType(currentState, me, [SOLDIER, ])))
-        # Evaluate the ratio of the AIs ants to the enemys ants (excluding the queen)
-        print("Ratio of Total Ants (excluding Queen): " + str(evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ])))
-        # Evaluate the ratio of the AIs food count to the enemys food count
-        print("Ratio of Food Count: " + str(evalNumberFood(currentState, me)))
-        print()
+        #
+        self.evalOverall(currentState, me)
+
         return selectedMove
 
     ##
