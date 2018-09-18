@@ -9,6 +9,59 @@ from Move import Move
 from GameState import *
 from AIPlayerUtils import *
 
+##
+# evalNumberAntType
+# Description:
+#
+# Parameters:
+#   currentState - A clone of the current game state that will be evaluated
+#   me - A reference to the index of the player in question
+#   antType - A list of the types of ants that will be evaluated (all in upper case)
+#
+# Return:
+#   A score between [-1.0, 1.0] such that + is good and - is bad for the
+#   player in question (me parameter)
+##
+def evalNumberAntType(currentState, me, antType):
+    # Gather a list of my ants of the given type
+    myAntCount = len(getAntList(currentState, me, antType))
+    # Gather a list of the enemys ants of the given type
+    enemyAntCount = len(getAntList(currentState, 1-me, antType))
+    # Calculate the total number of ants of the given type
+    sum = myAntCount+enemyAntCount
+
+    if myAntCount+enemyAntCount == 0:
+        return 0.0
+    else:
+        evalScore = (myAntCount-enemyAntCount)/sum
+        return evalScore
+
+##
+# evalNumberFood
+# Description:
+#
+# Parameters:
+#   currentState - A clone of the current game state that will be evaluated
+# Return:
+#   A score between [-1.0, 1.0] such that + is good and - is bad for the
+#   player in question (me parameter)
+##
+def evalNumberFood(currentState, me):
+    myInv = getCurrPlayerInventory(currentState)
+    enemyInv = currentState.inventories[1-me]
+    # Gather the number of food the AI has stored
+    myFoodCount = myInv.foodCount
+    # Gather the number of food the enemy has stored
+    enemyFoodCount = enemyInv.foodCount
+
+    # Calculate the total food gathered
+    sum = myFoodCount+enemyFoodCount
+
+    if sum == 0:
+        return 0.0
+    else:
+        evalScore = (myFoodCount-enemyFoodCount)/sum
+        return evalScore
 
 ##
 #AIPlayer
@@ -30,6 +83,7 @@ class AIPlayer(Player):
     ##
     def __init__(self, inputPlayerId):
         super(AIPlayer,self).__init__(inputPlayerId, "Search Based 0.1")
+        # Initialize class variables on start of program
 
     ##
     #getPlacement
@@ -46,6 +100,8 @@ class AIPlayer(Player):
     #Return: The coordinates of where the construction is to be placed
     ##
     def getPlacement(self, currentState):
+        # Initialize class variables on start of game
+
         numToPlace = 0
         #implemented by students to return their next move
         if currentState.phase == SETUP_PHASE_1:    #stuff on my side
@@ -95,6 +151,10 @@ class AIPlayer(Player):
     #Return: The Move to be made
     ##
     def getMove(self, currentState):
+        #Useful pointers
+        myInv = getCurrPlayerInventory(currentState)
+        me = currentState.whoseTurn
+
         moves = listAllLegalMoves(currentState)
         selectedMove = moves[random.randint(0,len(moves) - 1)];
 
@@ -103,6 +163,15 @@ class AIPlayer(Player):
         while (selectedMove.moveType == BUILD and numAnts >= 3):
             selectedMove = moves[random.randint(0,len(moves) - 1)];
 
+        # Evaluate the ratio of the AIs worker ants to the enemys worker ants
+        print("Ratio of Worker Ants: " + str(evalNumberAntType(currentState, me, [WORKER, ])))
+        # Evaluate the ratio of the AIs sodlier ants to the enemys soldier ants
+        print("Ratio of Solider Ants: " + str(evalNumberAntType(currentState, me, [SOLDIER, ])))
+        # Evaluate the ratio of the AIs ants to the enemys ants (excluding the queen)
+        print("Ratio of Total Ants (excluding Queen): " + str(evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ])))
+        # Evaluate the ratio of the AIs food count to the enemys food count
+        print("Ratio of Food Count: " + str(evalNumberFood(currentState, me)))
+        print()
         return selectedMove
 
     ##
