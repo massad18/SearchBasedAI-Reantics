@@ -173,6 +173,36 @@ class AIPlayer(Player):
 ################################################################################
 
     ##
+    # createGameStateNode
+    # Description: Called when a new GameState node is to be added to the list
+    #   of nodes. It documents the move that is to be made, the GameState that
+    #   will result in the move, the evaluation score of that state, and the
+    #   parent GameState. By default, the keyword parameters are set to None and
+    #   can be changed by direct reference to their name or in order of position
+    #
+    # Parameters:
+    #   nodeList - A complete list of all of the nodes up to that point
+    #
+    # Keyword Parameters:
+    #   Move = None - The Move that would be taken in the given state from the
+    #       parent node
+    #   Child = None - The state that would be reached by taking that move
+    #   Score = None - The evaluation score of the proposed state (Child GameState)
+    #   Parent = None - A reference to the parent GameState
+    #
+    ##
+    def createGameStateNode(self, nodeList, Move = None, Child = None, Score = None, Parent = None):
+
+        nodeList.append({
+            "Move": Move,
+            "Child": Child,
+            "Score": Score,
+            "Parent": Parent
+        })
+
+################################################################################
+
+    ##
     #getPlacement
     #
     #Description: called during setup phase for each Construction that
