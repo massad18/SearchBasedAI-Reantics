@@ -1,6 +1,6 @@
 import random
-import sys
 import math
+import sys
 sys.path.append("..")  #so other modules can be found in parent dir
 from Player import *
 from Constants import *
@@ -72,13 +72,13 @@ class AIPlayer(Player):
         # Calculate the total number of ants of the given type
         sum = myAntCount+enemyAntCount
 
-        if myAntCount+enemyAntCount == 0:
+        if sum == 0:
             return 0.0
         else:
             evalScore = (myAntCount-enemyAntCount)/sum
             return evalScore
 
-    ##
+ ##
     # evalNumberFoodStored
     # Description: Evaluates the current gamestate for the given person
     #   and the amount of food that they have stored. Will return a number between
@@ -119,6 +119,75 @@ class AIPlayer(Player):
             evalScore = self.foodStoredDifference_C_value*math.exp(self.foodStoredDifference_k_value*difference)
             return -evalScore
 
+    def evalWorkerPositions(self, currentState):
+        me = currentState.whoseTurn
+        workerList = getAntList(currentState, me, (WORKER,))
+        if (len(workerList) == 0):
+            return 0.0
+
+        # Save the coordinates of each food on the board.
+        foodCoords = self.getCoordsOfListElements(getConstrList(currentState, None, (FOOD,)))
+
+        # Save the coordinates of my food receiving buildings.
+        buildingCoords = self.getCoordsOfListElements(getConstrList(currentState, me, (ANTHILL, TUNNEL)))
+
+        # 16 steps is around the furthest distance one worker could theoretically be
+        # from a food source. The actual step amounts should never be close to this number.
+        MAX_STEPS_FROM_FOOD = 16
+
+        # Calculate the total steps each worker is from its nearest destination.
+        totalStepsToDestination = 0
+        for worker in workerList:
+            if worker.carrying:
+                totalStepsToDestination += self.getMinStepsToTarget(currentState, worker.coords, buildingCoords)
+            else:
+                steps = self.getMinStepsToTarget(currentState, worker.coords, foodCoords)
+                totalStepsToDestination += steps + MAX_STEPS_FROM_FOOD
+
+        myInv = getCurrPlayerInventory(currentState)
+        totalStepsToDestination += (11-myInv.foodCount) * 2 * MAX_STEPS_FROM_FOOD * len(workerList)
+        scoreCeiling = 12 * 2 * MAX_STEPS_FROM_FOOD * len(workerList)
+        evalScore = scoreCeiling - totalStepsToDestination
+        # Max possible score is 1.0, where all workers are at their destination.
+        return (evalScore/scoreCeiling)
+
+    def evalSoldierPositions(self, currentState):
+        me = currentState.whoseTurn
+        soldierList = getAntList(currentState, me, (SOLDIER,))
+        if (len(soldierList) == 0):
+            return 0.0
+        # Save the coordinates of all the enemy's ants.
+        enemyAntCoords = self.getCoordsOfListElements(getAntList(currentState, 1-me))
+
+        totalStepsToEnemy = 0
+        for soldier in soldierList:
+            totalStepsToEnemy += self.getMinStepsToTarget(currentState, soldier.coords, enemyAntCoords)
+
+        # 30 steps is around the furthest distance one soldier could theoretically be
+        # from an enemy ant. The actual step amounts should never be close to this number.
+        MAX_STEPS_FROM_ENEMY = 30
+        scoreCeiling = MAX_STEPS_FROM_ENEMY * len(soldierList)
+        evalScore = scoreCeiling - totalStepsToEnemy
+        # Max possible score is 1.0, where all soldiers are at their destination.
+        return (evalScore/scoreCeiling)
+
+    def evalQueenPosition(self, currentState):
+        pass
+
+    def getMinStepsToTarget(self, currentState, targetCoords, coordsList):
+        minSteps = 10000 # infinity
+        for coords in coordsList:
+            stepsToTarget = stepsToReach(currentState, targetCoords, coords)
+            if stepsToTarget < minSteps:
+                minSteps = stepsToTarget
+        return minSteps
+
+    def getCoordsOfListElements(self, elementList):
+        coordList = []
+        for element in elementList:
+            coordList.append(element.coords)
+        return coordList
+
     ##
     # evalOverall
     # Description: Calls all of the evaluation scores and multiplies them by a
@@ -136,69 +205,47 @@ class AIPlayer(Player):
 
     def evalOverall(self, currentState, me):
 
-        # If I am the winner, return 1.0
-        if getWinner(currentState) == me:
-            return 1.0
-        # If the enemy is the winner, return -1.0
-        elif getWinner(currentState) == 1-me:
-            return -1.0
-
         ### EVALUATE THE RATIO OF ANTS ###
+        allScores = []
         # Evaluate the ratio of the AIs worker ants to the enemys worker ants
         workerScore = self.evalNumberAntType(currentState, me, [WORKER, ]) * self.workerWeight
-        print("Ratio of Worker Ants: " + str(workerScore))
+        allScores.append(workerScore)
+
         # Evaluate the ratio of the AIs sodlier ants to the enemys soldier ants
         soldierScore = self.evalNumberAntType(currentState, me, [SOLDIER, ]) * self.soldierWeight
-        print("Ratio of Solider Ants: " + str(soldierScore))
+        allScores.append(soldierScore)
+
         # Evaluate the ratio of the AIs ants to the enemys ants (excluding the queen)
         allAntScore = self.evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ]) * self.allAntWeight
-        print("Ratio of Total Ants (excluding Queen): " + str(allAntScore))
+        allScores.append(allAntScore)
 
-        ### EVALUATE THE RATIO OF THE DIFFERENCE IN FOOD STORED ###
+        ### EVALUATE THE RATIO OF FOOD STORED ###
         # Evaluate the ratio of the AIs food count to the enemys food count
         foodStoredDifferenceScore = self.evalNumberFoodStoredDifference(currentState, me) * self.foodStoredDifferenceWeight
-        print("Ratio of Food Stored: " + str(foodStoredDifferenceScore))
+        allScores.append(foodStoredDifferenceScore)
+
+        ### EVALUATE THE POSITIONS OF OUR ANTS ###
+        workerPositionScore = self.evalWorkerPositions(currentState)
+        allScores.append(workerPositionScore)
+
+        soldierPositionScore = self.evalSoldierPositions(currentState)
+        allScores.append(soldierPositionScore)
 
         ### OVERALL WEIGHTED AVERAGE ###
-        # Sum up all of the weights for the weighted average
-        totalWeight = self.workerWeight + self.soldierWeight + self.allAntWeight + self.foodStoredDifferenceWeight
         # Takes the weighted average of all of the scores
-        overallScore = (workerScore + soldierScore + allAntScore + foodStoredDifferenceScore)/totalWeight
-        print("Overall Score: " + str(overallScore))
+        overallScore = sum(allScores)/len(allScores)
 
-        print()
+        #print("Ratio of Worker Ants: " + str(workerScore))
+        #print("Ratio of Solider Ants: " + str(soldierScore))
+        #print("Ratio of Total Ants (excluding Queen): " + str(allAntScore))
+        #print("Ratio of Food Stored: " + str(foodStoredScore))
+        #print("Worker Position Score:" + str(workerPositionScore))
+        #print("Soldier Position Score:" + str(soldierPositionScore))
+        #print("Overall Score: " + str(overallScore))
+
+        #print()
 
         return overallScore
-
-################################################################################
-
-    ##
-    # createGameStateNode
-    # Description: Called when a new GameState node is to be added to the list
-    #   of nodes. It documents the move that is to be made, the GameState that
-    #   will result in the move, the evaluation score of that state, and the
-    #   parent GameState. By default, the keyword parameters are set to None and
-    #   can be changed by direct reference to their name or in order of position
-    #
-    # Parameters:
-    #   nodeList - A complete list of all of the nodes up to that point
-    #
-    # Keyword Parameters:
-    #   Move = None - The Move that would be taken in the given state from the
-    #       parent node
-    #   Child = None - The state that would be reached by taking that move
-    #   Score = None - The evaluation score of the proposed state (Child GameState)
-    #   Parent = None - A reference to the parent GameState
-    #
-    ##
-    def createGameStateNode(self, nodeList, Move = None, Child = None, Score = None, Parent = None):
-
-        nodeList.append({
-            "Move": Move,
-            "Child": Child,
-            "Score": Score,
-            "Parent": Parent
-        })
 
 ################################################################################
 
@@ -273,17 +320,36 @@ class AIPlayer(Player):
         me = currentState.whoseTurn
 
         moves = listAllLegalMoves(currentState)
-        selectedMove = moves[random.randint(0,len(moves) - 1)];
 
+        #selectedMove = moves[random.randint(0,len(moves) - 1)];
+        possibleNodes = []
+        for move in moves:
+            if (move.moveType == END):
+                continue
+            resultState = getNextState(currentState, move)
+            stateScore = self.evalOverall(resultState, me)
+            possibleNodes.append(Node(resultState, move, stateScore, None))
+
+        if (len(possibleNodes) == 0):
+            return Move(END, None, None)
+
+        maxScore = -1.0
+        bestNode = None
+        for node in possibleNodes:
+            if (node.score > maxScore):
+                bestNode = node
+                maxScore = node.score
+
+        """
         #don't do a build move if there are already 3+ ants
         numAnts = len(currentState.inventories[currentState.whoseTurn].ants)
         while (selectedMove.moveType == BUILD and numAnts >= 3):
             selectedMove = moves[random.randint(0,len(moves) - 1)];
+        """
 
-        #
-        self.evalOverall(currentState, me)
+        # self.evalOverall(currentState, me)
 
-        return selectedMove
+        return bestNode.move
 
     ##
     #getAttack
@@ -306,3 +372,11 @@ class AIPlayer(Player):
     def registerWin(self, hasWon):
         #method templaste, not implemented
         pass
+
+class Node:
+
+    def __init__(self, state, move, score, parent):
+        self.state = state
+        self.move = move
+        self.score = score
+        self.parent = parent
