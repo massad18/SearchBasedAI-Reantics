@@ -36,6 +36,10 @@ class AIPlayer(Player):
         self.soldierWeight = 2
         self.allAntWeight = 1
         self.foodStoredDifferenceWeight = 1
+        self.workerPositionsWeight = 1
+        self.soldierPositionsWeight = 1
+        self.queenPositionWeight = 1
+        self.tempWeight = self.workerWeight
 
         # Init constants for y = Ce^(kx) equation s.t. x = [0,1] and y = [0,10]
             # y = [0,10] given that at 11, one team has 11 and the other has 0
@@ -71,6 +75,32 @@ class AIPlayer(Player):
         enemyAntCount = len(getAntList(currentState, 1-me, antType))
         # Calculate the total number of ants of the given type
         sum = myAntCount+enemyAntCount
+
+        # If antType is just Workers
+        if len(antType) == 1 and antType[0] == WORKER:
+            if myAntCount == 2:
+                return 1.0
+            elif myAntCount < 2:
+                if sum == 0:
+                    return 0.0
+                else:
+                    evalScore = (myAntCount-enemyAntCount)/sum
+                    return evalScore
+            else:
+                self.tempWeight = self.workerWeight
+                self.workerWeight = 1000
+                return -1.0
+        # Assuming we are looking at all other ants except the queen
+        elif len(antType) == 4:
+            if len(getAntList(currentState, me, [DRONE, ])) > 0:
+                self.tempWeight = self.allAntWeight
+                self.allAntWeight = 10
+                return -1.0
+            elif len(getAntList(currentState, me, [R_SOLDIER, ])) > 0:
+                self.tempWeight = self.allAntWeight
+                self.allAntWeight = 10
+                return -1.0
+
 
         if sum == 0:
             return 0.0
@@ -157,11 +187,13 @@ class AIPlayer(Player):
         if (len(soldierList) == 0):
             return 0.0
         # Save the coordinates of all the enemy's ants.
-        enemyAntCoords = self.getCoordsOfListElements(getAntList(currentState, 1-me))
+        #enemyAntCoords = self.getCoordsOfListElements(getAntList(currentState, 1-me))
+        enemyQueenCoords = getEnemyInv(None, currentState).getQueen().coords
 
         totalStepsToEnemy = 0
         for soldier in soldierList:
-            totalStepsToEnemy += self.getMinStepsToTarget(currentState, soldier.coords, enemyAntCoords)
+            #totalStepsToEnemy += self.getMinStepsToTarget(currentState, soldier.coords, enemyAntCoords)
+            totalStepsToEnemy += stepsToReach(currentState, soldier.coords, enemyQueenCoords)
 
         # 30 steps is around the furthest distance one soldier could theoretically be
         # from an enemy ant. The actual step amounts should never be close to this number.
@@ -172,7 +204,7 @@ class AIPlayer(Player):
         return (evalScore/scoreCeiling)
 
     def evalQueenPosition(self, currentState):
-        pass
+        return 0.0
 
     def getMinStepsToTarget(self, currentState, targetCoords, coordsList):
         minSteps = 10000 # infinity
@@ -204,36 +236,54 @@ class AIPlayer(Player):
     ##
 
     def evalOverall(self, currentState, me):
+        winResult = getWinner(currentState)
+        if winResult == 1:
+            return 1.0
+        elif winResult == 0:
+            return -1.0
+        # else neither player has won this state.
 
         ### EVALUATE THE RATIO OF ANTS ###
         allScores = []
+        weightsum = 0
         # Evaluate the ratio of the AIs worker ants to the enemys worker ants
         workerScore = self.evalNumberAntType(currentState, me, [WORKER, ]) * self.workerWeight
         allScores.append(workerScore)
+        weightsum += self.workerWeight
+
+        self.workerWeight = self.tempWeight
 
         # Evaluate the ratio of the AIs sodlier ants to the enemys soldier ants
         soldierScore = self.evalNumberAntType(currentState, me, [SOLDIER, ]) * self.soldierWeight
         allScores.append(soldierScore)
+        weightsum += self.soldierWeight
 
         # Evaluate the ratio of the AIs ants to the enemys ants (excluding the queen)
         allAntScore = self.evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ]) * self.allAntWeight
         allScores.append(allAntScore)
+        weightsum += self.allAntWeight
+
+        self.allAntWeight = self.tempWeight
 
         ### EVALUATE THE RATIO OF FOOD STORED ###
         # Evaluate the ratio of the AIs food count to the enemys food count
         foodStoredDifferenceScore = self.evalNumberFoodStoredDifference(currentState, me) * self.foodStoredDifferenceWeight
         allScores.append(foodStoredDifferenceScore)
+        weightsum += self.foodStoredDifferenceWeight
 
         ### EVALUATE THE POSITIONS OF OUR ANTS ###
-        workerPositionScore = self.evalWorkerPositions(currentState)
+        workerPositionScore = self.evalWorkerPositions(currentState) * self.workerPositionsWeight
         allScores.append(workerPositionScore)
+        weightsum += self.workerPositionsWeight
 
-        soldierPositionScore = self.evalSoldierPositions(currentState)
+        soldierPositionScore = self.evalSoldierPositions(currentState) * self.soldierPositionsWeight
         allScores.append(soldierPositionScore)
+        weightsum += self.soldierPositionsWeight
 
         ### OVERALL WEIGHTED AVERAGE ###
         # Takes the weighted average of all of the scores
-        overallScore = sum(allScores)/len(allScores)
+        # Only the game ending scores should be 1 or -1.
+        overallScore = 0.99 * sum(allScores)/weightsum
 
         #print("Ratio of Worker Ants: " + str(workerScore))
         #print("Ratio of Solider Ants: " + str(soldierScore))
@@ -324,30 +374,16 @@ class AIPlayer(Player):
         #selectedMove = moves[random.randint(0,len(moves) - 1)];
         possibleNodes = []
         for move in moves:
-            if (move.moveType == END):
-                continue
             resultState = getNextState(currentState, move)
             stateScore = self.evalOverall(resultState, me)
             possibleNodes.append(Node(resultState, move, stateScore, None))
 
-        if (len(possibleNodes) == 0):
-            return Move(END, None, None)
-
-        maxScore = -1.0
+        maxScore = -100000 # negative infinity
         bestNode = None
         for node in possibleNodes:
             if (node.score > maxScore):
                 bestNode = node
                 maxScore = node.score
-
-        """
-        #don't do a build move if there are already 3+ ants
-        numAnts = len(currentState.inventories[currentState.whoseTurn].ants)
-        while (selectedMove.moveType == BUILD and numAnts >= 3):
-            selectedMove = moves[random.randint(0,len(moves) - 1)];
-        """
-
-        # self.evalOverall(currentState, me)
 
         return bestNode.move
 
@@ -371,6 +407,9 @@ class AIPlayer(Player):
     #
     def registerWin(self, hasWon):
         #method templaste, not implemented
+        pass
+
+    def evalNumAnts(self, currentState):
         pass
 
 class Node:
