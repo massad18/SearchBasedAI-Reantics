@@ -297,6 +297,41 @@ class AIPlayer(Player):
 
         return overallScore
 
+    def recursiveEval(self, currentState, currentDepth, parentNode):
+        #Useful pointers
+        myInv = getCurrPlayerInventory(currentState)
+        me = currentState.whoseTurn
+
+        moves = listAllLegalMoves(currentState)
+
+        possibleNodes = []
+        for move in moves:
+            resultState = getNextState(currentState, move)
+            stateScore = self.evalOverall(resultState, me)
+            possibleNodes.append(Node(resultState, move, stateScore, parentNode))
+
+        # Base case reached.
+        if currentDepth >= self.depthLimit:
+            bestNode = self.nodeEvaluationHelper(possibleNodes)
+            return bestNode
+
+        currentChildNodes = []
+        for node in possibleNodes:
+            currentChildNodes.append(self.recursiveEval(node.state, currentDepth+1, node))
+        if len(currentChildNodes) == 0:
+            return parentNode
+        bestNode = self.nodeEvaluationHelper(currentChildNodes)
+        return bestNode
+
+    def nodeEvaluationHelper(self, nodeList):
+        maxScore = -100000 # negative infinity
+        bestNode = None
+        for node in nodeList:
+            if (node.score > maxScore):
+                bestNode = node
+                maxScore = node.score
+        return bestNode
+
 ################################################################################
 
     ##
@@ -365,27 +400,11 @@ class AIPlayer(Player):
     #Return: The Move to be made
     ##
     def getMove(self, currentState):
-        #Useful pointers
-        myInv = getCurrPlayerInventory(currentState)
-        me = currentState.whoseTurn
-
-        moves = listAllLegalMoves(currentState)
-
-        #selectedMove = moves[random.randint(0,len(moves) - 1)];
-        possibleNodes = []
-        for move in moves:
-            resultState = getNextState(currentState, move)
-            stateScore = self.evalOverall(resultState, me)
-            possibleNodes.append(Node(resultState, move, stateScore, None))
-
-        maxScore = -100000 # negative infinity
-        bestNode = None
-        for node in possibleNodes:
-            if (node.score > maxScore):
-                bestNode = node
-                maxScore = node.score
-
-        return bestNode.move
+        bestNode = self.recursiveEval(currentState, 0, None)
+        goalNode = bestNode
+        while not(goalNode.parent is None):
+            goalNode = bestNode.parent
+        return goalNode.move
 
     ##
     #getAttack
