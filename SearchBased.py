@@ -1,5 +1,4 @@
 import random
-import math
 import sys
 sys.path.append("..")  #so other modules can be found in parent dir
 from Player import *
@@ -9,9 +8,6 @@ from Ant import UNIT_STATS
 from Move import Move
 from GameState import *
 from AIPlayerUtils import *
-
-from threading import Thread, BoundedSemaphore
-import time
 
 ##
 #AIPlayer
@@ -32,154 +28,78 @@ class AIPlayer(Player):
     #   cpy           - whether the player is a copy (when playing itself)
     ##
     def __init__(self, inputPlayerId):
-        super(AIPlayer,self).__init__(inputPlayerId, "Search Based Semaphore")
+        super(AIPlayer,self).__init__(inputPlayerId, "Vewy Greedy AI <(^w^<)")
         ## Initialize class variables on start of program ##
-        # Init weights for weighted average of evaluation function
-        self.workerWeight = 2
-        self.soldierWeight = 2
-        self.allAntWeight = 1
-        self.foodStoredDifferenceWeight = 1
-        self.workerPositionsWeight = 1
-        self.soldierPositionsWeight = 1
-        self.queenPositionWeight = 1
-        self.tempWeight = self.workerWeight
 
-        # Init constants for y = Ce^(kx) equation s.t. x = [0,1] and y = [0,10]
-            # y = [0,10] given that at 11, one team has 11 and the other has 0
-            # used http://cs.jsu.edu/~leathrum/gwtmathlets/mathlets.php?name=expgraph
-        self.foodStoredDifference_C_value = 0.05
-        self.foodStoredDifference_k_value = 0.299573
+        self.foodCoords = []
+        self.buildingCoords = []
 
         # Init depth limit for recursion
         self.depthLimit = 2
-
-        # Set the max branches to recurse through
-        self.max_branches = 1
-
-        # Set the max number of locks for the semaphore
-        self.max_lock = 10
-        # If the maximum number of locks is greater than the maximum number of
-        # branches, then make the max # locks equaled to the max # max_branches
-            # Only need one thread per branch...
-        if self.max_lock > self.max_branches:
-            self.max_lock = self.max_branches
-
-        self.gameTime = 0
-        self.startTime = 0
-        self.prevGameTime = 0
-        self.bestTime = 0
-        self.bestLock = 0
-
+        
 ################################################################################
-    ##
-    # evalNumberAntType
-    # Description: Evaluates the current gamestate for the given person
-    #   and ant types. Will return a number between [-1.0, 1.0] where negative
-    #   numbers are undesirable state for the given person and positive numbers
-    #   are more desirable states. The more ants of the specific type that you have
-    #   compared to the opponent yields higher output scores.
-    #
-    # Parameters:
-    #   currentState - A clone of the current game state that will be evaluated
-    #   me - A reference to the index of the player in question
-    #   antType - A list of the types of ants that will be evaluated (all in upper case)
-    #
-    # Return:
-    #   A score between [-1.0, 1.0] such that + is good and - is bad for the
-    #   player in question (me parameter)
-    ##
-    def evalNumberAntType(self, currentState, me, antType):
-        # Gather a list of my ants of the given type
-        myAntCount = len(getAntList(currentState, me, antType))
-        # Gather a list of the enemys ants of the given type
-        enemyAntCount = len(getAntList(currentState, 1-me, antType))
-        # Calculate the total number of ants of the given type
-        sum = myAntCount+enemyAntCount
 
-        # If antType is just Workers
-        if len(antType) == 1 and antType[0] == WORKER:
-            if myAntCount == 2:
-                return 1.0
-            elif myAntCount < 2:
-                if sum == 0:
-                    return 0.0
-                else:
-                    evalScore = (myAntCount-enemyAntCount)/sum
-                    return evalScore
-            else:
-                self.tempWeight = self.workerWeight
-                self.workerWeight = 1000
-                return -1.0
-        # Assuming we are looking at all other ants except the queen
-        elif len(antType) == 4:
-            if len(getAntList(currentState, me, [DRONE, ])) > 0:
-                self.tempWeight = self.allAntWeight
-                self.allAntWeight = 10
-                return -1.0
-            elif len(getAntList(currentState, me, [R_SOLDIER, ])) > 0:
-                self.tempWeight = self.allAntWeight
-                self.allAntWeight = 10
-                return -1.0
-
-
-        if sum == 0:
-            return 0.0
+    # Evaluation function for the number of workers that the AI controls
+    def evalWorkerCount(self, currentState, test = False, testvar = None):
+        if test:
+            workerCount = testvar
         else:
-            evalScore = (myAntCount-enemyAntCount)/sum
-            return evalScore
-
- ##
-    # evalNumberFoodStored
-    # Description: Evaluates the current gamestate for the given person
-    #   and the amount of food that they have stored. Will return a number between
-    #   [-1.0, 1.0] where negative numbers are undesirable state for the given
-    #   person and positive numbers are more desirable states. The more food that
-    #   the player has stored, compared to their enemy, the higher the score returned.
-    #
-    # Parameters:
-    #   currentState - A clone of the current game state that will be evaluated
-    #
-    # Return:
-    #   A score between [-1.0, 1.0] such that + is good and - is bad for the
-    #   player in question (me parameter)
-    ##
-    def evalNumberFoodStoredDifference(self, currentState, me):
-        myInv = currentState.inventories[me]
-        enemyInv = currentState.inventories[1-me]
-        # Gather the number of food the AI has stored
-        myFoodCount = myInv.foodCount
-        # Gather the number of food the enemy has stored
-        enemyFoodCount = enemyInv.foodCount
-
-        # Calculate the total food gathered
-        sum = myFoodCount+enemyFoodCount
-
-        if sum == 0:
-            return 0.0
-        # If the AIs food is greater than the enemys...
-            # Have the difference be positive and the final score be positive
-        elif myFoodCount > enemyFoodCount:
-            difference = myFoodCount - enemyFoodCount
-            evalScore = self.foodStoredDifference_C_value*math.exp(self.foodStoredDifference_k_value*difference)
-            return evalScore
-        # If the AIs food is less than the enemys...
-            # Have the difference be positive and the final score be negative
+            workerCount = len(getAntList(currentState, currentState.whoseTurn, (WORKER,)))
+        # Reward the AI for having only one worker
+        if (workerCount > 1):
+            return -1.0
         else:
-            difference = enemyFoodCount - myFoodCount
-            evalScore = self.foodStoredDifference_C_value*math.exp(self.foodStoredDifference_k_value*difference)
-            return -evalScore
+            return workerCount
 
+    # Evaluation function for the number of soldier that the AI controls
+    def evalSoldierCount(self, currentState, test = False, testvar = None):
+        if test:
+            soldierCount = testvar
+        else:
+            soldierCount = len(getAntList(currentState, currentState.whoseTurn, (SOLDIER,)))
+        # Reward for having more than 10 soldiers
+        if (soldierCount > 10):
+            return 1.0
+        else:
+            return 0.1 * soldierCount
+
+    # Evaluation function for the difference in ants between AIs
+    def evalAntDifference(self, currentState, test = False, testMyAnts = None, testEnemyAnts = None):
+        if test:
+            myAntCount = testMyAnts
+            enemyAntCount = testEnemyAnts
+        else:
+            me = currentState.whoseTurn
+            myAntCount = len(getAntList(currentState, me))
+            enemyAntCount = len(getAntList(currentState, 1-me))
+        # Evaluation score is the ratio of our AI's ants vs the total number of ants on the board
+        return (myAntCount-enemyAntCount) / (myAntCount+enemyAntCount)
+
+    # Evaluation function for the difference in health of the ants between AIs
+    def evalHealthDifference(self, currentState, test = False, testMyAntList = None, testEnemyAntList = None):
+        if test:
+            myAnts = testMyAntList
+            enemyAnts = testEnemyAntList
+        else:
+            me = currentState.whoseTurn
+            myAnts = getAntList(currentState, me)
+            enemyAnts = getAntList(currentState, 1-me)
+            
+        myTotalHealth = 0
+        enemyTotalHealth = 0
+        for ant in myAnts:
+            myTotalHealth += ant.health
+        for ant in enemyAnts:
+            enemyTotalHealth += ant.health
+        return (myTotalHealth-enemyTotalHealth) / (myTotalHealth+enemyTotalHealth)
+
+    # Evaluation function for the position of the worker
+        # Rewards AI for collection food and bring the food back to the anthill/tunnel
     def evalWorkerPositions(self, currentState):
         me = currentState.whoseTurn
         workerList = getAntList(currentState, me, (WORKER,))
         if (len(workerList) == 0):
-            return 0.0
-
-        # Save the coordinates of each food on the board.
-        foodCoords = self.getCoordsOfListElements(getConstrList(currentState, None, (FOOD,)))
-
-        # Save the coordinates of my food receiving buildings.
-        buildingCoords = self.getCoordsOfListElements(getConstrList(currentState, me, (ANTHILL, TUNNEL)))
+            return -1.0
 
         # 16 steps is around the furthest distance one worker could theoretically be
         # from a food source. The actual step amounts should never be close to this number.
@@ -189,9 +109,9 @@ class AIPlayer(Player):
         totalStepsToDestination = 0
         for worker in workerList:
             if worker.carrying:
-                totalStepsToDestination += self.getMinStepsToTarget(currentState, worker.coords, buildingCoords)
+                totalStepsToDestination += self.getMinStepsToTarget(worker.coords, self.buildingCoords)
             else:
-                steps = self.getMinStepsToTarget(currentState, worker.coords, foodCoords)
+                steps = self.getMinStepsToTarget(worker.coords, self.foodCoords)
                 totalStepsToDestination += steps + MAX_STEPS_FROM_FOOD
 
         myInv = getCurrPlayerInventory(currentState)
@@ -201,19 +121,19 @@ class AIPlayer(Player):
         # Max possible score is 1.0, where all workers are at their destination.
         return (evalScore/scoreCeiling)
 
+    # Evaluation function for the position of the soldier
+        # Rewards for being closer to enemy ants resulting in attack
     def evalSoldierPositions(self, currentState):
         me = currentState.whoseTurn
         soldierList = getAntList(currentState, me, (SOLDIER,))
         if (len(soldierList) == 0):
             return 0.0
         # Save the coordinates of all the enemy's ants.
-        #enemyAntCoords = self.getCoordsOfListElements(getAntList(currentState, 1-me))
-        enemyQueenCoords = getEnemyInv(None, currentState).getQueen().coords
+        enemyAntCoords = self.getCoordsOfListElements(getAntList(currentState, 1-me))
 
         totalStepsToEnemy = 0
         for soldier in soldierList:
-            #totalStepsToEnemy += self.getMinStepsToTarget(currentState, soldier.coords, enemyAntCoords)
-            totalStepsToEnemy += stepsToReach(currentState, soldier.coords, enemyQueenCoords)
+            totalStepsToEnemy += self.getMinStepsToTarget(soldier.coords, enemyAntCoords)
 
         # 30 steps is around the furthest distance one soldier could theoretically be
         # from an enemy ant. The actual step amounts should never be close to this number.
@@ -223,17 +143,42 @@ class AIPlayer(Player):
         # Max possible score is 1.0, where all soldiers are at their destination.
         return (evalScore/scoreCeiling)
 
+    # Evaluation function for the position of the queen
+        # Rewards AI for moving away from the closest enemy and not on the anthill/tunnel
     def evalQueenPosition(self, currentState):
-        return 0.0
+        me = currentState.whoseTurn
+        queen = getCurrPlayerQueen(currentState)
+        enemyAnts = getAntList(currentState, 1-me, (DRONE, SOLDIER, R_SOLDIER))
+        enemyAntCoords = self.getCoordsOfListElements(enemyAnts)
+        totalDistance = 0
+        for enemyCoords in enemyAntCoords:
+            totalDistance += approxDist(queen.coords, enemyCoords)
 
-    def getMinStepsToTarget(self, currentState, targetCoords, coordsList):
+        if (len(enemyAntCoords) > 0):
+            MAX_STEPS_FROM_ENEMY = 30
+            scoreCeiling = MAX_STEPS_FROM_ENEMY * len(enemyAntCoords)
+            buildings = getConstrList(currentState, me, (ANTHILL, TUNNEL, FOOD))
+            for building in buildings:
+                if (queen.coords == building.coords):
+                    return -1.0
+            return totalDistance/scoreCeiling
+        else:
+            buildings = getConstrList(currentState, me, (ANTHILL, TUNNEL, FOOD))
+            for building in buildings:
+                if (queen.coords == building.coords):
+                    return -1.0
+            return 1.0
+
+    # Helper function to get the minimum steps to the given target
+    def getMinStepsToTarget(self, targetCoords, coordsList):
         minSteps = 10000 # infinity
         for coords in coordsList:
-            stepsToTarget = stepsToReach(currentState, targetCoords, coords)
+            stepsToTarget = approxDist(targetCoords, coords)
             if stepsToTarget < minSteps:
                 minSteps = stepsToTarget
         return minSteps
 
+    # Helper function to get the coordinate list of the given list
     def getCoordsOfListElements(self, elementList):
         coordList = []
         for element in elementList:
@@ -248,14 +193,14 @@ class AIPlayer(Player):
     #
     # Parameters:
     #   currentState - A clone of the current game state that will be evaluated
-    #   me - A reference to the index of the player in question
     #
     # Return:
     # A score between [-1.0, 1.0] such that + is good and - is bad for the
     #   player in question (me parameter)
     ##
 
-    def evalOverall(self, currentState, me):
+    def evalOverall(self, currentState):
+        # Determine if the game has ended and who won
         winResult = getWinner(currentState)
         if winResult == 1:
             return 1.0
@@ -263,142 +208,70 @@ class AIPlayer(Player):
             return -1.0
         # else neither player has won this state.
 
-        ### EVALUATE THE RATIO OF ANTS ###
-        allScores = []
-        weightsum = 0
-        # Evaluate the ratio of the AIs worker ants to the enemys worker ants
-        workerScore = self.evalNumberAntType(currentState, me, [WORKER, ]) * self.workerWeight
-        allScores.append(workerScore)
-        weightsum += self.workerWeight
+        # Initialize the totalScore
+        totalScore = 0
 
-        self.workerWeight = self.tempWeight
+        # Initialize the weights for the specific evaluation functions
+        workerCountWeight = 2
+        soldierCountWeight = 3
+        antDifferenceWeight = 1
+        healthDifferenceWeight = 2
+        workerPositionWeight = 1
+        soldierPositionWeight = 1
+        queenPositionWeight = 1
+        totalWeight = 11
 
-        # Evaluate the ratio of the AIs sodlier ants to the enemys soldier ants
-        soldierScore = self.evalNumberAntType(currentState, me, [SOLDIER, ]) * self.soldierWeight
-        allScores.append(soldierScore)
-        weightsum += self.soldierWeight
-
-        # Evaluate the ratio of the AIs ants to the enemys ants (excluding the queen)
-        allAntScore = self.evalNumberAntType(currentState, me, [WORKER, SOLDIER, DRONE, R_SOLDIER, ]) * self.allAntWeight
-        allScores.append(allAntScore)
-        weightsum += self.allAntWeight
-
-        self.allAntWeight = self.tempWeight
-
-        ### EVALUATE THE RATIO OF FOOD STORED ###
-        # Evaluate the ratio of the AIs food count to the enemys food count
-        foodStoredDifferenceScore = self.evalNumberFoodStoredDifference(currentState, me) * self.foodStoredDifferenceWeight
-        allScores.append(foodStoredDifferenceScore)
-        weightsum += self.foodStoredDifferenceWeight
-
-        ### EVALUATE THE POSITIONS OF OUR ANTS ###
-        workerPositionScore = self.evalWorkerPositions(currentState) * self.workerPositionsWeight
-        allScores.append(workerPositionScore)
-        weightsum += self.workerPositionsWeight
-
-        soldierPositionScore = self.evalSoldierPositions(currentState) * self.soldierPositionsWeight
-        allScores.append(soldierPositionScore)
-        weightsum += self.soldierPositionsWeight
+        # Determine evaluation scores multiplied by it weights
+        totalScore += self.evalWorkerCount(currentState) * workerCountWeight
+        totalScore += self.evalSoldierCount(currentState) * soldierCountWeight
+        totalScore += self.evalAntDifference(currentState) * antDifferenceWeight
+        totalScore += self.evalHealthDifference(currentState) * healthDifferenceWeight
+        totalScore += self.evalWorkerPositions(currentState) * workerPositionWeight
+        totalScore += self.evalSoldierPositions(currentState) * soldierPositionWeight
+        totalScore += self.evalQueenPosition(currentState) * queenPositionWeight
 
         ### OVERALL WEIGHTED AVERAGE ###
         # Takes the weighted average of all of the scores
         # Only the game ending scores should be 1 or -1.
-        overallScore = 0.99 * sum(allScores)/weightsum
-
-        #print("Ratio of Worker Ants: " + str(workerScore))
-        #print("Ratio of Solider Ants: " + str(soldierScore))
-        #print("Ratio of Total Ants (excluding Queen): " + str(allAntScore))
-        #print("Ratio of Food Stored: " + str(foodStoredScore))
-        #print("Worker Position Score:" + str(workerPositionScore))
-        #print("Soldier Position Score:" + str(soldierPositionScore))
-        #print("Overall Score: " + str(overallScore))
-
-        #print()
+        overallScore = 0.99 * totalScore / totalWeight
 
         return overallScore
 
-    # Secondary helper function for the thread
-        # Exactly the same as the other recursive calls, except that at the end
-        # of the recursive call, release the lock that it held from the semaphore
-    def threadHelper(self, semaphore, childList, currentState, currentDepth, parentNode):
-        childList.append(self.recursiveEval(currentState, currentDepth+1, parentNode))
-        semaphore.release()
-
-    def recursiveEval(self, currentState, currentDepth, parentNode):
-        #Useful pointers
-        myInv = getCurrPlayerInventory(currentState)
-        me = currentState.whoseTurn
+    # Recursion function to search for the best move per depth
+    def greedyGetBestMove(self, currentState, currentDepth, parentNode):
 
         moves = listAllLegalMoves(currentState)
 
-        # start = time.time()
-
         possibleNodes = []
-        lowestNode = None
-
         for move in moves:
             resultState = getNextState(currentState, move)
-            stateScore = self.evalOverall(resultState, me)
-            # Prune the possible nodes that will be checked by considering only
-            # the top "self.max_branches" scoring nodes
-            if len(possibleNodes) == 0:
-                lowestNode = Node(resultState, move, stateScore, parentNode)
-                possibleNodes.append(lowestNode)
-            elif len(possibleNodes) >= self.max_branches:
-                if stateScore > lowestNode.score:
-                    possibleNodes.remove(lowestNode)
-                    lowestNode = Node(resultState, move, stateScore, parentNode)
-                    possibleNodes.append(lowestNode)
-                    for node in possibleNodes:
-                        if node.score < lowestNode.score:
-                            lowestNode = node
-            else:
-                possibleNodes.append(Node(resultState, move, stateScore, parentNode))
+            stateScore = self.evalOverall(resultState)
+            possibleNodes.append(Node(resultState, move, stateScore, parentNode))
 
-        # end = time.time()
-        #
-        # print("Time Elapsed: " + str(end-start))
+        # All possible nodes explored
+        if (len(possibleNodes) == 0):
+            return parentNode
 
+        bestNode = self.nodeEvaluationHelper(possibleNodes)
+        
         # Base case reached.
         if currentDepth >= self.depthLimit:
-            bestNode = self.nodeEvaluationHelper(possibleNodes)
             return bestNode
 
-        # Only create threads at the top level
-            # Prevents recursively creating threads
-        if currentDepth == 0:
-            threads = []
-            semaphore = BoundedSemaphore(self.max_lock)
-
-        currentChildNodes = []
-        for node in possibleNodes:
-            # At the top level only... create a thread that will create a recursive call
-            if currentDepth == 0:
-                # Try to acquire a lock from the semaphore
-                semaphore.acquire()
-                # Create the thread for the given branch of the tree
-                t = Thread(target=self.threadHelper, args=(semaphore, currentChildNodes, node.state, currentDepth+1, node))
-                # Add the thread to a list to later join them together
-                threads.append(t)
-                # Start the individual thread
-                t.start()
-            # If not the top of the branch, continue recursive calls normally
-            # on the same thread
-            else:
-                currentChildNodes.append(self.recursiveEval(node.state, currentDepth+1, node))
-
-        # If the recursive calls have finished and are back to the top of the branch...
-            # Join all of the threads together to continue to the next step
-        if currentDepth == 0:
-            for t in threads:
-                if t.isAlive():
-                    t.join()
-
-        if len(currentChildNodes) == 0:
-            return parentNode
-        bestNode = self.nodeEvaluationHelper(currentChildNodes)
+        bestNode = self.greedyGetBestMove(bestNode.state, currentDepth+1, bestNode)
         return bestNode
 
+    # Helper function that returns the child node of the given node
+    def getChildNodes(self, parentNode):
+        moves = listAllLegalMoves(parentNode.state)
+        children = []
+        for move in moves:
+            resultState = getNextState(parentNode.state, move)
+            stateScore = self.evalOverall(resultState, parentNode.state.whoseTurn)
+            children.append(Node(resultState, move, stateScore, parentNode, parentNode.depth+1))
+        return children
+
+    # Helper function to determine the best score given  list of nodes
     def nodeEvaluationHelper(self, nodeList):
         maxScore = -100000 # negative infinity
         bestNode = None
@@ -426,10 +299,6 @@ class AIPlayer(Player):
     ##
     def getPlacement(self, currentState):
         # Initialize class variables on start of game
-
-        self.gameTime = 0
-        self.startTime = time.time()
-
         numToPlace = 0
         #implemented by students to return their next move
         if currentState.phase == SETUP_PHASE_1:    #stuff on my side
@@ -479,20 +348,13 @@ class AIPlayer(Player):
     #Return: The Move to be made
     ##
     def getMove(self, currentState):
+        self.foodCoords = self.getCoordsOfListElements(getConstrList(currentState, None, (FOOD,)))
+        self.buildingCoords = self.getCoordsOfListElements(getConstrList(currentState, currentState.whoseTurn, (ANTHILL, TUNNEL)))
+        bestNode = self.greedyGetBestMove(currentState, 0, None)
 
-        # print("############## Get Move ###############")
-        #
-        # start = time.time()
-
-        bestNode = self.recursiveEval(currentState, 0, None)
-        goalNode = bestNode
-        while not(goalNode.parent is None):
-            goalNode = bestNode.parent
-
-        # end = time.time()
-        # print("RECURSION: " + str(end-start))
-
-        return goalNode.move
+        while not(bestNode.parent is None):
+            bestNode = bestNode.parent
+        return bestNode.move
 
     ##
     #getAttack
@@ -513,34 +375,12 @@ class AIPlayer(Player):
     # This agent doens't learn
     #
     def registerWin(self, hasWon):
-        self.gameTime = time.time() - self.startTime
-
-
-        # print("Previous Time: " + str(self.prevGameTime) + " Current Game Time: " + str(self.gameTime))
-        # print("Old Max_Lock: " + str(self.max_lock))
-        #
-        # if self.gameTime < 120:
-        #     if self.gameTime < self.bestTime:
-        #         self.bestTime = self.gameTime
-        #         self.bestLock = self.max_lock
-        #     print("++++++++++++ 2 MINUTES ++++++++++++")
-        #     print(self.max_lock)
-        #     print("+++++++++++++++++++++++++++++++++++")
-        #
-        # if (self.prevGameTime - self.gameTime) < 30:
-        #     self.max_lock -= 1
-        #     self.prevGameTime = self.gameTime
-        # elif self.gameTime > self.prevGameTime:
-        #     self.max_lock += 2
-        #
-        # print("New Max Lock: " + str(self.max_lock))
-        # print("BEST MAX LOCK: " + str(self.bestLock))
-        # print("###############################################################")
-        # print()
-
-    def evalNumAnts(self, currentState):
+        #method templaste, not implemented
         pass
-
+        
+# Node class that creates a new instance of a game state
+# Takes in the game state, the move that was made to reach the state, the evaluation score of the state
+# and the parent game state
 class Node:
 
     def __init__(self, state, move, score, parent):
@@ -548,3 +388,59 @@ class Node:
         self.move = move
         self.score = score
         self.parent = parent
+
+        
+###########################################################################################################
+##
+# UNIT TESTS Cases
+##
+
+testAI = AIPlayer(0)
+# evalWorkerCount
+if testAI.evalWorkerCount(None,True,0) != 0:
+    print("ERROR: Worker Count Evaluation1")
+if testAI.evalWorkerCount(None,True,1) != 1:
+    print("ERROR: Worker Count Evaluation2")
+if testAI.evalWorkerCount(None,True,2) != -1:
+    print("ERROR: Worker Count Evaluation3")
+
+# evalSoldierCount
+if testAI.evalSoldierCount(None,True,0) != 0:
+    print("ERROR: Soldier Count Evaluation1")
+if testAI.evalSoldierCount(None,True,5) != 0.5:
+    print("ERROR: Soldier Count Evaluation2")
+if testAI.evalSoldierCount(None,True,10) != 1:
+    print("ERROR: Soldier Count Evaluation3")
+if testAI.evalSoldierCount(None,True,12) != 1:
+    print("ERROR: Soldier Count Evaluation4")
+    
+# evalAntDifference
+if testAI.evalAntDifference(None,True,1,1) != 0:
+    print("ERROR: Ant Difference Evaluation1")
+if testAI.evalAntDifference(None,True,1,2) != -1/3:
+    print("ERROR: Ant Difference Evaluation2")
+if testAI.evalAntDifference(None,True,2,1) != 1/3:
+    print("ERROR: Ant Difference Evaluation3")
+if testAI.evalAntDifference(None,True,3,2) != .2:
+    print("ERROR: Ant Difference Evaluation4")
+if testAI.evalAntDifference(None,True,2,3) != -.2:
+    print("ERROR: Ant Difference Evaluation5")
+
+# evalHealthDifference
+myAnts = [Ant((0,0), WORKER, 0), Ant((1,1), QUEEN, 0), Ant((2,2), DRONE, 0)]
+enemyAnts = [Ant((9,9), WORKER, 1), Ant((8,8), SOLDIER, 1), Ant((7,7), R_SOLDIER, 1)]
+if testAI.evalHealthDifference(None, True, myAnts, enemyAnts) != 4/28:
+    print("ERROR: evalHealthDifference result")
+
+# getMinStepsToTarget
+if testAI.getMinStepsToTarget((0,0), [(2,2), (1,1), (3,3)]) != 2:
+    print("ERROR: MinStepsToTarget result")
+
+# getCoordsOfListElements
+class testCoords:
+    def __init__(self, c):
+        self.coords = c
+
+testCoordsList = [testCoords((0,1)), testCoords((1,2)), testCoords((45,2))]
+if testAI.getCoordsOfListElements(testCoordsList) != [(0,1), (1,2), (45,2)]:
+    print("ERROR: getCoordsOfListElements result")
