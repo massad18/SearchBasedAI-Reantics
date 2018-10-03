@@ -36,7 +36,7 @@ class AIPlayer(Player):
 
         # Init depth limit for recursion
         self.depthLimit = 2
-        
+
 ################################################################################
 
     # Evaluation function for the number of workers that the AI controls
@@ -84,7 +84,7 @@ class AIPlayer(Player):
             me = currentState.whoseTurn
             myAnts = getAntList(currentState, me)
             enemyAnts = getAntList(currentState, 1-me)
-            
+
         myTotalHealth = 0
         enemyTotalHealth = 0
         for ant in myAnts:
@@ -253,7 +253,7 @@ class AIPlayer(Player):
             return parentNode
 
         bestNode = self.nodeEvaluationHelper(possibleNodes)
-        
+
         # Base case reached.
         if currentDepth >= self.depthLimit:
             return bestNode
@@ -348,8 +348,12 @@ class AIPlayer(Player):
     #Return: The Move to be made
     ##
     def getMove(self, currentState):
+        # Acquire the location of the food and the buildings for the worker
+        # position eval function
         self.foodCoords = self.getCoordsOfListElements(getConstrList(currentState, None, (FOOD,)))
         self.buildingCoords = self.getCoordsOfListElements(getConstrList(currentState, currentState.whoseTurn, (ANTHILL, TUNNEL)))
+
+        # Run the recursive greedy best move function to determine the best move
         bestNode = self.greedyGetBestMove(currentState, 0, None)
 
         while not(bestNode.parent is None):
@@ -377,7 +381,7 @@ class AIPlayer(Player):
     def registerWin(self, hasWon):
         #method templaste, not implemented
         pass
-        
+
 # Node class that creates a new instance of a game state
 # Takes in the game state, the move that was made to reach the state, the evaluation score of the state
 # and the parent game state
@@ -389,7 +393,7 @@ class Node:
         self.score = score
         self.parent = parent
 
-        
+
 ###########################################################################################################
 ##
 # UNIT TESTS Cases
@@ -413,7 +417,7 @@ if testAI.evalSoldierCount(None,True,10) != 1:
     print("ERROR: Soldier Count Evaluation3")
 if testAI.evalSoldierCount(None,True,12) != 1:
     print("ERROR: Soldier Count Evaluation4")
-    
+
 # evalAntDifference
 if testAI.evalAntDifference(None,True,1,1) != 0:
     print("ERROR: Ant Difference Evaluation1")
